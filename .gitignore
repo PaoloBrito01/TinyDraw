@@ -1,0 +1,23 @@
+# Bytecode / cache do Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Artefatos de compilação e execução (regeneráveis a partir dos .td)
+exemplos/*.exe
+exemplos/*.ppm
+*.out
+a.out
+
+# Estado de ferramentas locais
+.omc/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Observação: os .c gerados e os *_preview.png são mantidos no repositório
+# como amostra do código emitido e do resultado visual.
