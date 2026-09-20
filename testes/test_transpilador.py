@@ -20,6 +20,7 @@ from tinydraw import gerador, lexico, semantico, sintatico, transpilar
 from tinydraw.erros import ErroLexico, ErroSintatico, ErroSemanticoMultiplo
 
 # Programa para teste de ponta a ponta (transpilação, compilação e execução)
+# Serve para testar a geração de código C e a execução do programa transpilado
 # Gera uma tela 10x6 com um retângulo rosa, uma linha preta e um ponto rosa
 # Arquivo de sáida: teste.ppm
 PROGRAMA_VALIDO = """
@@ -40,29 +41,133 @@ def _erros_semanticos(fonte: str) -> list[str]:
         semantico.analisar(programa)
     return [erro.mensagem for erro in contexto.exception.erros]
 
-# Testes unitários 
+# Testes unitários
 class TesteLexico(unittest.TestCase):
-    def test_reconhece_palavras_reservadas_e_nomes(self):
-        tokens = lexico.tokenizar("tela 4 por 3\ncor AZUL = 0, 0, 255")
-        tipos = [t.tipo for t in tokens]
+    """Testes do scanner, organizados pelas classes do item 6 da
+    especificação: aceitação, descarte, fronteira, rejeição e regressão."""
+
+    def _tipos(self, fonte: str) -> list[str]:
+        return [t.tipo for t in lexico.tokenizar(fonte)]
+
+    def _erro(self, fonte: str) -> ErroLexico:
+        with self.assertRaises(ErroLexico) as contexto:
+            lexico.tokenizar(fonte)
+        return contexto.exception
+
+    # Aceitação: um caso por categoria de token, ou seja, um teste para cada linha
+    def test_aceita_palavras_reservadas(self):
+        fonte = ("tela cor usar ponto linha retangulo salvar "
+                 "em de ate tamanho por")
         self.assertEqual(
-            tipos,
-            ["TELA", "NUMERO", "POR", "NUMERO", "COR", "NOME_COR", "IGUAL",
-             "NUMERO", "VIRGULA", "NUMERO", "VIRGULA", "NUMERO", "FIM"],
+            self._tipos(fonte),
+            ["TELA", "COR", "USAR", "PONTO", "LINHA", "RETANGULO", "SALVAR",
+             "EM", "DE", "ATE", "TAMANHO", "POR", "FIM"],
         )
 
-    def test_ignora_comentarios(self):
-        tokens = lexico.tokenizar("# comentario\ntela 4 por 3")
-        self.assertEqual(tokens[0].tipo, "TELA")
-        self.assertEqual(tokens[0].linha, 2)
+    def test_aceita_numero(self):
+        tokens = lexico.tokenizar("007 99999")
+        self.assertEqual([t.tipo for t in tokens], ["NUMERO", "NUMERO", "FIM"])
+        # O léxico reconhece a forma, não a faixa (item 5 da especificação).
+        self.assertEqual([t.lexema for t in tokens[:2]], ["007", "99999"])
 
-    def test_caractere_invalido(self):
-        with self.assertRaises(ErroLexico):
-            lexico.tokenizar("tela 4 @ 3")
+    def test_aceita_nome_cor(self):
+        tokens = lexico.tokenizar("VERMELHO AZUL_2 A")
+        self.assertEqual([t.tipo for t in tokens[:3]], ["NOME_COR"] * 3)
 
-    def test_palavra_minuscula_desconhecida(self):
-        with self.assertRaises(ErroLexico):
-            lexico.tokenizar("desenhar 1")
+    def test_aceita_cadeia(self):
+        token = lexico.tokenizar('"desenho.ppm"')[0]
+        self.assertEqual(token.tipo, "CADEIA")
+        self.assertEqual(token.lexema, '"desenho.ppm"')
+
+    def test_aceita_simbolos(self):
+        self.assertEqual(self._tipos("= ,"), ["IGUAL", "VIRGULA", "FIM"])
+
+    def test_posicao_linha_coluna(self):
+        tokens = lexico.tokenizar("tela 4 por 3")
+        self.assertEqual(
+            [(t.linha, t.coluna) for t in tokens[:4]],
+            [(1, 1), (1, 6), (1, 8), (1, 12)],
+        )
+
+    def test_coluna_reinicia_apos_quebra_de_linha(self):
+        tokens = lexico.tokenizar("tela 4 por 3\ncor AZUL")
+        self.assertEqual((tokens[0].linha, tokens[0].coluna), (1, 1))
+        self.assertEqual((tokens[4].linha, tokens[4].coluna), (2, 1))  # cor
+        self.assertEqual((tokens[5].linha, tokens[5].coluna), (2, 5))  # AZUL
+
+    # Descarte: mostra que o scnanner ignora comentários, espaços e quebras de linha, sem gerar tokens 
+    def test_descarta_comentario_no_fim_sem_quebra_de_linha(self):
+        self.assertEqual(self._tipos("tela # sem quebra no fim"), ["TELA", "FIM"])
+
+    def test_descarta_espacos_e_tabulacoes(self):
+        self.assertEqual(self._tipos("tela \t\t   4"), ["TELA", "NUMERO", "FIM"])
+
+    def test_descarta_linhas_em_branco(self):
+        tokens = lexico.tokenizar("tela\n\n\n4")
+        self.assertEqual([t.tipo for t in tokens], ["TELA", "NUMERO", "FIM"])
+        self.assertEqual(tokens[1].linha, 4)  # contador de linha avança
+
+    # Fronteira: mostra que o scanner reconhece corretamente o limite entre tokens, sem gerar novos
+    def test_arquivo_vazio(self):
+        tokens = lexico.tokenizar("")
+        self.assertEqual([t.tipo for t in tokens], ["FIM"])
+        self.assertEqual((tokens[0].linha, tokens[0].coluna), (1, 1))
+
+    def test_arquivo_so_com_comentarios(self):
+        self.assertEqual(self._tipos("# um\n# dois\n"), ["FIM"])
+
+    def test_posicao_do_token_fim(self):
+        fim = lexico.tokenizar("tela 4 por 3")[-1]
+        self.assertEqual((fim.linha, fim.coluna), (1, 13))
+        fim_com_quebra = lexico.tokenizar("tela 4 por 3\n")[-1]
+        self.assertEqual((fim_com_quebra.linha, fim_com_quebra.coluna), (2, 1))
+
+    def test_cadeia_vazia(self):
+        token = lexico.tokenizar('""')[0]
+        self.assertEqual((token.tipo, token.lexema), ("CADEIA", '""'))
+
+    # Rejeição: mostra que o scanner rejeita entradas inválidas, levanta ErroLexico e aponta a posição do erro
+    def test_rejeita_caractere_fora_do_alfabeto(self):
+        erro = self._erro("tela 4 @ 3")
+        self.assertIn("fora do alfabeto", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 8))
+
+    def test_rejeita_caractere_acentuado(self):
+        """`retângulo` deve acusar o acento, não o prefixo 'ret'."""
+        erro = self._erro("retângulo em 1, 1")
+        self.assertIn("'â'", erro.mensagem)
+        self.assertIn("sem acentuação", erro.mensagem)
+        self.assertNotIn("palavra desconhecida", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 4))
+
+    def test_rejeita_cadeia_nao_fechada(self):
+        erro = self._erro('salvar "desenho.ppm')
+        self.assertIn("cadeia não terminada", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 8))
+
+    def test_rejeita_cadeia_com_quebra_de_linha_interna(self):
+        erro = self._erro('salvar "dese\nnho.ppm"')
+        self.assertIn("cadeia não terminada", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 8))
+
+    def test_rejeita_palavra_minuscula_desconhecida(self):
+        erro = self._erro("desenhar 1")
+        self.assertIn("palavra desconhecida 'desenhar'", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 1))
+
+    def test_rejeita_nome_de_cor_em_minuscula(self):
+        erro = self._erro("cor azul = 1, 1, 1")
+        self.assertIn("palavra desconhecida 'azul'", erro.mensagem)
+        self.assertIn("maiúsculas", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 5))
+
+    # Regressão: testes que garantem que erros previamente corrigidos não voltem a ocorrer
+    def test_separador_x_permanece_rejeitado(self):
+        """Trava a decisão de usar `por` como separador: se `x` voltar a ser
+        palavra reservada, este teste falha."""
+        erro = self._erro("tela 40 x 20")
+        self.assertIn("palavra desconhecida 'x'", erro.mensagem)
+        self.assertEqual((erro.linha, erro.coluna), (1, 9))
 
 # Testes sintáticos e semânticos
 class TesteSintatico(unittest.TestCase):
