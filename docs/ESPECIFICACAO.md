@@ -42,7 +42,7 @@ ou linhas diagonais. A gramática é LL(1), sem produções recursivas.
 
 Duas decisões foram ratificadas pela equipe (A1 e A2) e ficam registradas
 aqui, na especificação — um documento à parte só recriaria a duplicação que
-este arquivo elimina. O histórico da troca do separador está no Apêndice A.
+este arquivo elimina.
 
 | Decisão | Escolha | Motivo |
 |---|---|---|
@@ -59,9 +59,9 @@ este arquivo elimina. O histórico da troca do separador está no Apêndice A.
 
 ## 3. Especificação léxica — entregável I
 
-Implementada em [`../tinydraw/lexico.py`](../tinydraw/lexico.py) como lista
-ordenada de pares (token, expressão regular), aplicada com a estratégia do
-maior casamento na ordem declarada.
+Implementada em [`../tinydraw/lexico.py`](../tinydraw/lexico.py) como lista de
+pares (token, expressão regular). A ordem da lista não é critério de
+desempate — a prova está em §3.1.
 
 | Token | Expressão regular | Observação |
 |---|---|---|
@@ -78,13 +78,90 @@ maior casamento na ordem declarada.
 **Palavras reservadas (todas em português):** `tela`, `por`, `cor`, `usar`,
 `ponto`, `linha`, `retangulo`, `salvar`, `em`, `de`, `ate`, `tamanho`.
 
-Os domínios são disjuntos por caixa: minúsculas são exclusivas das palavras
-reservadas, maiúsculas são exclusivas dos nomes de cor. Não há conflito entre
-identificadores e palavras-chave, e uma palavra minúscula desconhecida é
-rejeitada já na análise léxica (`palavra desconhecida 'desenhar'`).
+As palavras reservadas não são alternativas da expressão regular mestre: o
+lexema casa primeiro como `PALAVRA`, e só então o scanner consulta um
+dicionário para reclassificar o token. Isso evita o erro clássico de
+alternância — `de` não casa dentro de `desenhar`, porque `[a-z][a-z_]*`
+consome a palavra inteira antes de qualquer consulta — e faz de uma palavra
+minúscula desconhecida um erro léxico, não sintático (`palavra desconhecida
+'desenhar'`).
+
+Qualquer caractere fora do alfabeto Σ da linguagem (letras ASCII, dígitos,
+`_ # " = ,` e espaço em branco) é rejeitado na posição exata
+(`caractere 'â' fora do alfabeto da linguagem`), inclusive quando aparece
+logo após um prefixo que já casou como `PALAVRA` — é o caso de
+`retangulo` acentuado, que aponta o `â`, não o prefixo `ret`. Uma `CADEIA`
+sem a aspa de fechamento antes do fim da linha recebe diagnóstico próprio
+(`cadeia não terminada`), em vez do genérico "caractere inesperado".
 
 O token `FIM` não é reconhecido por expressão regular; é acrescentado ao fim
 da lista de tokens por `tokenizar()`.
+
+### 3.1. Prova de que a especificação é livre de ambiguidade
+
+Os nove padrões de `ESPECIFICACAO_LEXICA` são disjuntos pelo primeiro
+caractere:
+
+| Padrão | Primeiro caractere |
+|---|---|
+| `COMENTARIO` | `#` |
+| `ESPACO` | espaço, tab, CR |
+| `NOVA_LINHA` | LF |
+| `CADEIA` | `"` |
+| `NUMERO` | dígito |
+| `PALAVRA` | minúscula |
+| `NOME_COR` | maiúscula |
+| `IGUAL` | `=` |
+| `VIRGULA` | `,` |
+
+Como as classes de primeiro caractere são duas a duas disjuntas, no máximo
+um padrão pode casar em cada posição da entrada. Logo, primeiro-casamento e
+maior-casamento produzem o mesmo resultado, e a especificação dispensa regra
+de desempate — mais forte do que dizer "usamos a estratégia do flex": o
+flex precisa de desempate (maior casamento, ordem como critério secundário)
+porque suas especificações admitem ambiguidade; a da TinyDraw não admite.
+
+A mesma disjunção vale por caixa dentro de `PALAVRA`/`NOME_COR`: minúsculas
+são exclusivas das palavras reservadas, maiúsculas dos nomes de cor. Não há
+interseção entre identificador e palavra-chave — o conflito clássico que
+linguagens de propósito geral precisam resolver simplesmente não existe
+aqui. Custo da decisão: nomes de cor são obrigatoriamente em maiúsculas,
+aceitável no domínio (`VERMELHO` lê como constante, que é o que é).
+
+Nota de implementação: a alternância do módulo `re` do Python é
+primeiro-casamento na ordem declarada, não maior-casamento. A distinção é
+irrelevante aqui, pelo argumento acima.
+
+Detecção precoce é a terceira propriedade que a disjunção sustenta: um
+programa com um comando inexistente é rejeitado já na primeira fase, com
+linha e coluna, sem que o analisador sintático precise ser consultado —
+diagnóstico melhor e mais barato. O próprio `retangulo` acentuado é a
+evidência: antes da correção da pendência 2, o erro era `palavra
+desconhecida 'ret'` na coluna 1, escondendo a causa; hoje é `caractere 'â'
+fora do alfabeto da linguagem` na coluna 4, apontando exatamente o
+caractere que viola Σ. É a mesma disjunção pelo primeiro caractere que
+prova a especificação livre de ambiguidade (acima) que torna esse
+diagnóstico possível sem ambiguidade sobre onde o erro realmente está.
+
+### 3.2. Separação entre léxico e semântica
+
+`NUMERO` (`[0-9]+`) aceita `007` e `99999`: o scanner reconhece a *forma* do
+lexema, não a *validade* do valor. Componentes RGB fora de [0, 255] e
+dimensões não positivas são responsabilidade das regras R1 e R2 da análise
+semântica (§5) — não do léxico.
+
+### 3.3. Cobertura de testes
+
+`TesteLexico`, em
+[`../testes/test_transpilador.py`](../testes/test_transpilador.py), cobre o
+scanner em cinco categorias: aceitação (um caso por token, posição
+linha:coluna, reinício de coluna após `\n`), descarte (comentários,
+espaços/tabulações, linhas em branco), fronteira (arquivo vazio, arquivo só
+com comentários, posição do token `FIM`, cadeia vazia), rejeição (caractere
+fora do alfabeto, acentuação, cadeia não terminada, palavra e nome de cor
+desconhecidos) e regressão (`tela 40 x 20` continua rejeitado — trava a
+decisão A1 do §2). O detalhe caso a caso vive no próprio arquivo de teste,
+que é a fonte de verdade dele.
 
 ---
 
@@ -321,20 +398,3 @@ Evolução natural: `preencher` como modificador do retângulo; algoritmo de
 Bresenham para diagonais; laço `repetir n vezes` — este exigiria escopo na
 tabela de símbolos, geração de `for` em C e, sobretudo, abandonar a aposta
 de coordenadas estáticas (§1), o que muda a natureza da análise semântica.
-
----
-
-## Apêndice A — Histórico: separador `x` → `por`
-
-Uma versão anterior da linguagem usava `x` como separador de dimensões
-(`tela 40 x 20`). A justificativa original era evitar colisão com um
-identificador de coordenada; essa justificativa deixou de valer quando
-`coordenada` passou a ser sempre `NUMERO "," NUMERO`, sem a letra `x`.
-
-Com `x` na tabela, a linguagem teria 12 palavras reservadas, das quais 11 em
-português e uma — `x` — um símbolo de uma letra fora do registro. A troca
-para `por` (decisão A1) elimina essa exceção. O custo foi baixo: no léxico,
-uma entrada no dicionário de palavras reservadas (`por` já casa o padrão
-`PALAVRA`, sem alterar expressão regular); no parser, o token consumido em
-`_decl_tela` e `_cmd_retangulo`; e a propagação para gramática, exemplos e
-testes.
