@@ -36,7 +36,7 @@ EXEMPLOS = RAIZ / "exemplos"
 ESPECIFICACAO = RAIZ / "docs" / "ESPECIFICACAO.md"
 
 # Programas que devem transpilar sem erro.
-VALIDOS = ["bandeira.td", "moldura.td"]
+VALIDOS = ["bandeira.td", "moldura.td", "exemplo10.td"]
 
 # Programas inválidos e a exceção da fase que deve rejeitar cada um.
 INVALIDOS = {
