@@ -35,28 +35,6 @@ static void td_ponto(int x, int y) {
     td_tela[y][x] = td_cor_atual;
 }
 
-static void td_linha(int x1, int y1, int x2, int y2) {
-    if (y1 == y2) {
-        int inicio = x1 < x2 ? x1 : x2;
-        int fim    = x1 < x2 ? x2 : x1;
-        for (int x = inicio; x <= fim; x++) td_ponto(x, y1);
-    } else {
-        int inicio = y1 < y2 ? y1 : y2;
-        int fim    = y1 < y2 ? y2 : y1;
-        for (int y = inicio; y <= fim; y++) td_ponto(x1, y);
-    }
-}
-
-/* Retângulo sem preenchimento (apenas o contorno). */
-static void td_retangulo(int x, int y, int largura, int altura) {
-    int direita = x + largura - 1;
-    int base    = y + altura - 1;
-    td_linha(x, y, direita, y);
-    td_linha(x, base, direita, base);
-    td_linha(x, y, x, base);
-    td_linha(direita, y, direita, base);
-}
-
 static int td_salvar(const char *caminho) {
     FILE *saida = fopen(caminho, "w");
     if (saida == NULL) {

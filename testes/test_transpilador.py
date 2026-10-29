@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -264,6 +265,66 @@ class TesteGeracaoDeCodigo(unittest.TestCase):
             self.assertEqual(pixels[3 * 10 + 5], (255, 0, 128))
             # (0, 5) permanece no fundo preto
             self.assertEqual(pixels[5 * 10 + 0], (0, 0, 0))
+
+# Gera apenas as rotinas usadas: uma função ou variável static nunca
+# referenciada vira erro sob -Werror (docs/ESPECIFICACAO.md §6)
+def _programa(*comandos: str) -> str:
+    return "\n".join(["tela 10 por 10", *comandos, 'salvar "s.ppm"'])
+
+
+CASOS_DE_USO = {
+    "so_ponto": (
+        _programa("cor A = 1, 2, 3", "usar A", "ponto em 0, 0"),
+        {"td_ponto"},
+    ),
+    "so_linha": (
+        _programa("cor A = 1, 2, 3", "usar A", "linha de 0, 0 ate 9, 0"),
+        {"td_ponto", "td_linha"},
+    ),
+    "so_retangulo": (
+        _programa("cor A = 1, 2, 3", "usar A",
+                  "retangulo em 0, 0 tamanho 4 por 4"),
+        {"td_ponto", "td_linha", "td_retangulo"},
+    ),
+    "sem_desenho": (_programa(), set()),
+    "cor_sem_usar": (_programa("cor A = 1, 2, 3"), set()),
+}
+
+ROTINAS = {"td_ponto", "td_linha", "td_retangulo"}
+
+
+class TesteRotinasUsadas(unittest.TestCase):
+    def test_emite_so_as_rotinas_usadas(self):
+        for nome, (fonte, esperadas) in CASOS_DE_USO.items():
+            with self.subTest(caso=nome):
+                codigo_c = transpilar(fonte)
+                for rotina in ROTINAS:
+                    definicao = f"static void {rotina}("
+                    if rotina in esperadas:
+                        self.assertIn(definicao, codigo_c)
+                    else:
+                        self.assertNotIn(definicao, codigo_c)
+
+    def test_paleta_so_existe_com_usar(self):
+        com_usar = transpilar(CASOS_DE_USO["so_ponto"][0])
+        sem_usar = transpilar(CASOS_DE_USO["cor_sem_usar"][0])
+        self.assertIn("td_paleta[]", com_usar)
+        self.assertIn("td_cor_atual", com_usar)
+        self.assertNotIn("td_paleta", sem_usar)
+        self.assertNotIn("td_cor_atual", sem_usar)
+
+    @unittest.skipUnless(shutil.which("gcc"), "gcc não encontrado no PATH")
+    def test_cada_caso_compila_sem_aviso(self):
+        for nome, (fonte, _) in CASOS_DE_USO.items():
+            with self.subTest(caso=nome):
+                with tempfile.TemporaryDirectory() as pasta:
+                    fonte_c = Path(pasta) / "saida.c"
+                    fonte_c.write_text(transpilar(fonte), encoding="utf-8")
+                    subprocess.run(
+                        ["gcc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                         str(fonte_c), "-o", str(Path(pasta) / "saida")],
+                        check=True,
+                    )
 
 # Execução dos testes
 if __name__ == "__main__":

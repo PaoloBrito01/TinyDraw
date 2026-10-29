@@ -291,6 +291,14 @@ tela antes da geração. Ele permanece como defesa do código gerado: um
 defeito no gerador produz uma imagem errada, não escrita fora dos limites de
 `td_tela`. O comentário no C gerado registra isso.
 
+O gerador emite **apenas as rotinas que o programa usa**, com suas
+dependências: `retangulo` traz `td_retangulo`, `td_linha` e `td_ponto`;
+`linha` traz `td_linha` e `td_ponto`; `ponto` traz só `td_ponto`. A paleta
+`td_paleta[]` e `td_cor_atual` só existem se houver algum `usar`. Uma função
+ou variável `static` nunca referenciada gera aviso no `gcc`, e o aviso vira
+erro sob `-Werror`, então um programa válido que use só `ponto`, por exemplo,
+deixaria de compilar se o gerador emitisse tudo.
+
 O programa gerado imprime uma **pré-visualização textual** no terminal (`#`
 para pixel pintado, `.` para fundo), o que torna a semântica do fonte
 observável sem abrir a imagem. O C é compilado com `-Wall -Wextra -Werror`
